@@ -23,7 +23,7 @@ NTFY_TOPIC     = os.getenv("NTFY_TOPIC")           # optional  e.g. "my-sec-aler
 
 # ── SEC EDGAR API ─────────────────────────────────────────────────────────────
 HEADERS = {
-    "User-Agent": "sec-monitor/1.0 your-email@example.com",  # ← 改成你的 email
+    "User-Agent": "sec-monitor/1.0 bitcointest0206@gmail.com",
     "Accept": "application/json",
 }
 
