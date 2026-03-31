@@ -1,54 +1,36 @@
-name: SEC Filing Monitor — Rocket Lab
+name: SEC Filing Monitor
 
 on:
   schedule:
-    # GitHub Actions minimum is every 5 minutes
-    # Run 12 times per hour = as close to "per minute" as GitHub allows
-    - cron: "*/5 * * * *"
-
-  # Allow manual trigger from the Actions tab
-  workflow_dispatch:
+    - cron: "*/5 * * * *"   # every 5 min (GitHub minimum)
+  workflow_dispatch:         # manual trigger from Actions tab
 
 jobs:
   check-filings:
     runs-on: ubuntu-latest
     permissions:
-      contents: write   # needed to commit the cache file back to the repo
+      contents: write   # needed to create/update GitHub Releases
 
     steps:
-      # ── 1. Checkout ───────────────────────────────────────────────────────
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
-      # ── 2. Set up Python ──────────────────────────────────────────────────
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: "pip"
 
-      # ── 3. Install dependencies ───────────────────────────────────────────
       - name: Install dependencies
         run: pip install requests
 
-      # ── 4. Run the monitor ────────────────────────────────────────────────
       - name: Check for new SEC filings
         env:
+          GITHUB_TOKEN:        ${{ secrets.GITHUB_TOKEN }}   # auto-provided, no setup needed
+          GITHUB_REPOSITORY:   ${{ github.repository }}
           SLACK_WEBHOOK_URL:   ${{ secrets.SLACK_WEBHOOK_URL }}    # optional
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}  # optional
           NTFY_TOPIC:          ${{ secrets.NTFY_TOPIC }}           # optional
         run: python check_sec.py
-
-      # ── 5. Persist cache back to repo ─────────────────────────────────────
-      # The cache file (last_seen_filings.json) is committed so the next run
-      # knows which filings it has already seen.
-      - name: Commit updated cache
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add last_seen_filings.json
-          # Only commit if something changed
-          git diff --staged --quiet || git commit -m "chore: update SEC filing cache [skip ci]"
-          git push
