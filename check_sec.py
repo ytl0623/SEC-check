@@ -121,7 +121,14 @@ def load_cache() -> dict[str, set[str]]:
     if not r.ok:
         return {}
 
-    raw = r.json()   # { cik: [acc1, acc2, ...] }
+    raw = r.json()
+
+    # Backwards-compat: old single-company cache was a plain list
+    if isinstance(raw, list):
+        print("  ⚠️  Old list-format cache detected — discarding and starting fresh.")
+        return {}
+
+    # Expected format: { cik: [acc1, acc2, ...] }
     return {cik: set(nums) for cik, nums in raw.items()}
 
 def save_cache(cache: dict[str, list[str]]):
