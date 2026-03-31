@@ -2,7 +2,7 @@ name: SEC Filing Monitor
 
 on:
   schedule:
-    - cron: "*/5 * * * *"   # every 5 min (GitHub minimum)
+    - cron: "0 * * * *"     # every hour
   workflow_dispatch:         # manual trigger from Actions tab
 
 jobs:
