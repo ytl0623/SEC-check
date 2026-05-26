@@ -15,7 +15,11 @@ WATCHLIST = [
         "name":  "Kneron / Spark I Acquisition (SPKL)",
         "cik":   "0001884046",
         "emoji": "🧠",
-        "note":  "SPAC vehicle for Kneron's Nasdaq listing — watch for S-4/F-4 merger filings",
+    },
+    {
+        "name":  "SpaceX (SPCX)",
+        "cik":   "0001181412",
+        "emoji": "🛰️",
     },
 ]
 
