@@ -23,7 +23,7 @@ WATCHLIST = [
     },
     {
         "name":  "Nokia (NOK)",
-        "cik":   "0001119774",
+        "cik":   "0000924613",
         "emoji": "📡",
     },
 ]
