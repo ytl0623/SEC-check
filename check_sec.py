@@ -12,7 +12,7 @@ WATCHLIST = [
         "emoji": "🚀",
     },
     {
-        "name":  "Kneron / Spark I Acquisition (SPKL)",
+        "name":  "Kneron (SPKL)",
         "cik":   "0001884046",
         "emoji": "🧠",
     },
@@ -20,6 +20,11 @@ WATCHLIST = [
         "name":  "SpaceX (SPCX)",
         "cik":   "0001181412",
         "emoji": "🛰️",
+    },
+    {
+        "name":  "Nokia (NOK)",
+        "cik":   "0001119774",
+        "emoji": "📡",
     },
 ]
 
