@@ -6,26 +6,29 @@ from datetime import datetime, timezone
 
 # ── Watchlist ─────────────────────────────────────────────────────────────────
 WATCHLIST = [
-    {
-        "name":  "Rocket Lab (RKLB)",
-        "cik":   "0001819994",
-        "emoji": "🚀",
-    },
-    {
-        "name":  "Kneron (SPKL)",
-        "cik":   "0001884046",
-        "emoji": "🧠",
-    },
-    {
-        "name":  "SpaceX (SPCX)",
-        "cik":   "0001181412",
-        "emoji": "🛰️",
-    },
-    {
-        "name":  "Nokia (NOK)",
-        "cik":   "0000924613",
-        "emoji": "📡",
-    },
+    # ── 太空產業 (Space) ──────────────────────────────────────────
+    {"name": "Rocket Lab (RKLB)",        "cik": "0001819994"},
+    {"name": "SpaceX (SPCX)",            "cik": "0001181412"},
+    {"name": "Intuitive Machines (LUNR)", "cik": "0001844452"},
+    {"name": "AST SpaceMobile (ASTS)",   "cik": "0001780312"},
+    {"name": "Planet Labs (PL)",         "cik": "0001836833"},
+    {"name": "Redwire (RDW)",            "cik": "0001819810"},
+
+    # ── 市值一兆美元以上 (>$1T market cap) ─────────────────────────
+    {"name": "Nvidia (NVDA)",            "cik": "0001045810"},
+    {"name": "Apple (AAPL)",             "cik": "0000320193"},
+    {"name": "Microsoft (MSFT)",         "cik": "0000789019"},
+    {"name": "Alphabet (GOOGL)",         "cik": "0001652044"},
+    {"name": "Amazon (AMZN)",            "cik": "0001018724"},
+    {"name": "Meta (META)",              "cik": "0001326801"},
+    {"name": "Broadcom (AVGO)",          "cik": "0001730168"},
+    {"name": "Berkshire Hathaway (BRK)", "cik": "0001067983"},
+    {"name": "Tesla (TSLA)",             "cik": "0001318605"},
+    {"name": "Walmart (WMT)",            "cik": "0000104169"},
+
+    # ── 其他 (Other) ──────────────────────────────────────────────
+    {"name": "Kneron (SPKL)",            "cik": "0001884046"},
+    {"name": "Nokia (NOK)",              "cik": "0000924613"},
 ]
 
 MAX_FILINGS   = 20
@@ -115,7 +118,7 @@ def load_cache() -> dict[str, set[str]]:
     """Returns { cik: set(accessionNumbers) }"""
     release = _get_release_by_tag(CACHE_TAG)
     if not release:
-        print("  ℹ️  No cache release found — first run.")
+        print("  [info] No cache release found — first run.")
         return {}
 
     asset = next((a for a in release.get("assets", []) if a["name"] == CACHE_ASSET), None)
@@ -134,7 +137,7 @@ def load_cache() -> dict[str, set[str]]:
 
     # Backwards-compat: old single-company cache was a plain list
     if isinstance(raw, list):
-        print("  ⚠️  Old list-format cache detected — discarding and starting fresh.")
+        print("  [warn] Old list-format cache detected — discarding and starting fresh.")
         return {}
 
     # Expected format: { cik: [acc1, acc2, ...] }
@@ -153,25 +156,25 @@ def save_cache(cache: dict[str, list[str]]):
             body      = f"Auto-managed by SEC monitor. Tracks: {companies}",
             prerelease= True,
         )
-        print("  ℹ️  Created new sec-cache release.")
+        print("  [info] Created new sec-cache release.")
 
     for asset in release.get("assets", []):
         if asset["name"] == CACHE_ASSET:
             _delete_asset(asset["id"])
 
     _upload_asset(release["upload_url"], CACHE_ASSET, content)
-    print("  ✅ Cache uploaded to GitHub Release.")
+    print("  [ok] Cache uploaded to GitHub Release.")
 
 # ── Publish GitHub Release for new filings ────────────────────────────────────
 def publish_filing_release(company: dict, new_filings: list[dict]) -> str:
     now        = datetime.now(timezone.utc)
     form_types = ", ".join(dict.fromkeys(f["form"] for f in new_filings))
     tag        = f"filing-{company['cik'].lstrip('0')}-{now.strftime('%Y%m%d-%H%M%S')}"
-    name       = f"{company['emoji']} {company['name']} — New Filing: {form_types} ({now.strftime('%Y-%m-%d')})"
+    name       = f"{company['name']} — New Filing: {form_types} ({now.strftime('%Y-%m-%d')})"
 
-    lines = [f"## {company['emoji']} New SEC Filing(s) — {company['name']}\n"]
+    lines = [f"## New SEC Filing(s) — {company['name']}\n"]
     if note := company.get("note"):
-        lines.append(f"> ℹ️ {note}\n")
+        lines.append(f"> {note}\n")
     for f in new_filings:
         desc = f["description"] or f["primaryDocument"]
         lines += [
@@ -187,7 +190,7 @@ def publish_filing_release(company: dict, new_filings: list[dict]) -> str:
     )
 
     rel = _create_release(tag=tag, name=name, body="\n".join(lines), prerelease=False)
-    print(f"  ✅ GitHub Release published: {rel['html_url']}")
+    print(f"  [ok] GitHub Release published: {rel['html_url']}")
     return rel["html_url"]
 
 # ── Optional extra notifications ──────────────────────────────────────────────
@@ -206,7 +209,7 @@ def notify_ntfy(text: str, company: dict, new_filings: list[dict]):
             f"https://ntfy.sh/{NTFY_TOPIC}",
             data=text.encode(),
             headers={
-                "Title": f"{company['emoji']} {company['name']}: {form_types}",
+                "Title": f"{company['name']}: {form_types}",
                 "Priority": "high",
                 "Tags": "chart_with_upwards_trend",
             },
@@ -218,12 +221,12 @@ def write_github_summary(company: dict, new_filings: list[dict], release_url: st
     if not path:
         return
     with open(path, "a") as fh:
-        fh.write(f"## {company['emoji']} {company['name']} — {len(new_filings)} New Filing(s)\n\n")
+        fh.write(f"## {company['name']} — {len(new_filings)} New Filing(s)\n\n")
         fh.write("| Form | Filed | Description | Link |\n|------|-------|-------------|------|\n")
         for f in new_filings:
             desc = f["description"] or f["primaryDocument"]
             fh.write(f"| `{f['form']}` | {f['filingDate']} | {desc} | [View]({f['url']}) |\n")
-        fh.write(f"\n[📦 GitHub Release]({release_url})\n\n")
+        fh.write(f"\n[GitHub Release]({release_url})\n\n")
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
@@ -237,12 +240,12 @@ def main():
     for company in WATCHLIST:
         cik  = company["cik"]
         name = company["name"]
-        print(f"── {company['emoji']} {name} ({cik})")
+        print(f"── {name} ({cik})")
 
         try:
             filings = fetch_latest_filings(cik)
         except Exception as e:
-            print(f"  ❌ Failed to fetch: {e}", file=sys.stderr)
+            print(f"  [error] Failed to fetch: {e}", file=sys.stderr)
             any_error = True
             new_cache[cik] = list(cache.get(cik, []))
             continue
@@ -254,12 +257,12 @@ def main():
         new_cache[cik] = all_acc
 
         if not new_filings:
-            print("  ✅ No new filings.")
+            print("  [ok] No new filings.")
             continue
 
-        print(f"  🔔 {len(new_filings)} new filing(s):")
+        print(f"  [new] {len(new_filings)} new filing(s):")
         for f in new_filings:
-            print(f"     • [{f['form']}] {f['filingDate']} — {f['description'] or f['primaryDocument']}")
+            print(f"     - [{f['form']}] {f['filingDate']} — {f['description'] or f['primaryDocument']}")
 
         release_url = publish_filing_release(company, new_filings)
 
@@ -267,7 +270,7 @@ def main():
             f"[{f['form']}] {f['filingDate']} {f['description'] or f['primaryDocument']}\n{f['url']}"
             for f in new_filings
         )
-        msg = f"{company['emoji']} {name} new SEC filing(s):\n{summary}"
+        msg = f"{name} new SEC filing(s):\n{summary}"
         notify_slack(msg)
         notify_discord(msg)
         notify_ntfy(summary, company, new_filings)
@@ -276,7 +279,7 @@ def main():
         print()
 
     save_cache(new_cache)
-    print("\n✅ All done.")
+    print("\n[ok] All done.")
     if any_error:
         sys.exit(1)
 
