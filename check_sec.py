@@ -32,6 +32,10 @@ WATCHLIST = [
 ]
 
 MAX_FILINGS   = 20
+SCAN_LIMIT    = 150
+
+EXCLUDE_FORMS = {"4", "4/A"}
+EXCLUDE_DESCS = {"FORM 4"}
 CACHE_TAG     = "sec-cache"
 CACHE_ASSET   = "last_seen_filings.json"   # stores { cik: [accessionNumbers] }
 
@@ -73,14 +77,20 @@ def fetch_latest_filings(cik: str) -> list[dict]:
 
     filings = []
     cik_short = cik.lstrip("0")
-    for i in range(min(MAX_FILINGS, len(acc))):
+    for i in range(min(SCAN_LIMIT, len(acc))):
+        form = forms[i] if i < len(forms) else ""
+        desc = descs[i] if i < len(descs) else ""
+
+        if is_excluded(form, desc):
+            continue
+
         acc_clean = acc[i].replace("-", "")
         doc       = docs[i] if i < len(docs) else ""
         filings.append({
             "accessionNumber": acc[i],
-            "form":        forms[i] if i < len(forms) else "",
+            "form":        form,
             "filingDate":  dates[i] if i < len(dates) else "",
-            "description": descs[i] if i < len(descs) else "",
+            "description": desc,
             "primaryDocument": doc,
             "url": f"https://www.sec.gov/Archives/edgar/data/{cik_short}/{acc_clean}/{doc}",
             "indexUrl": (
@@ -88,6 +98,10 @@ def fetch_latest_filings(cik: str) -> list[dict]:
                 f"&CIK={cik}&type=&dateb=&owner=include&count=10"
             ),
         })
+
+        if len(filings) >= MAX_FILINGS:
+            break
+
     return filings
 
 # ── GitHub Release cache ──────────────────────────────────────────────────────
