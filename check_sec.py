@@ -259,9 +259,6 @@ def main():
             for f in new_filings
         )
         msg = f"{name} new SEC filing(s):\n{summary}"
-        notify_slack(msg)
-        notify_discord(msg)
-        notify_ntfy(summary, company, new_filings)
         write_github_summary(company, new_filings, release_url)
 
         print()
