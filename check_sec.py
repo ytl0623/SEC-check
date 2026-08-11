@@ -6,7 +6,6 @@ from datetime import datetime, timezone
 
 # ── Watchlist ─────────────────────────────────────────────────────────────────
 WATCHLIST = [
-    # ── 太空產業 (Space) ──────────────────────────────────────────
     {"name": "Rocket Lab (RKLB)",        "cik": "0001819994"},
     {"name": "SpaceX (SPCX)",            "cik": "0001181412"},
     {"name": "Intuitive Machines (LUNR)", "cik": "0001844452"},
@@ -14,7 +13,6 @@ WATCHLIST = [
     {"name": "Planet Labs (PL)",         "cik": "0001836833"},
     {"name": "Redwire (RDW)",            "cik": "0001819810"},
 
-    # ── 市值一兆美元以上 (>$1T market cap) ─────────────────────────
     {"name": "Nvidia (NVDA)",            "cik": "0001045810"},
     {"name": "Apple (AAPL)",             "cik": "0000320193"},
     {"name": "Microsoft (MSFT)",         "cik": "0000789019"},
@@ -26,7 +24,6 @@ WATCHLIST = [
     {"name": "Tesla (TSLA)",             "cik": "0001318605"},
     {"name": "Walmart (WMT)",            "cik": "0000104169"},
 
-    # ── 其他 (Other) ──────────────────────────────────────────────
     {"name": "Kneron (SPKL)",            "cik": "0001884046"},
     {"name": "Nokia (NOK)",              "cik": "0000924613"},
 ]
@@ -37,9 +34,8 @@ SCAN_LIMIT    = 150
 EXCLUDE_FORMS = {"4", "4/A"}
 EXCLUDE_DESCS = {"FORM 4"}
 CACHE_TAG     = "sec-cache"
-CACHE_ASSET   = "last_seen_filings.json"   # stores { cik: [accessionNumbers] }
+CACHE_ASSET   = "last_seen_filings.json"
 
-# GitHub — injected by workflow
 GH_TOKEN = os.environ["GITHUB_TOKEN"]
 GH_REPO  = os.environ["GITHUB_REPOSITORY"]
 GH_API   = "https://api.github.com"
@@ -50,15 +46,16 @@ GH_HEADERS = {
     "X-GitHub-Api-Version": "2022-11-28",
 }
 
-# Optional extra channels
-SLACK_WEBHOOK   = os.getenv("SLACK_WEBHOOK_URL")
-DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK_URL")
-NTFY_TOPIC      = os.getenv("NTFY_TOPIC")
-
 SEC_HEADERS = {
     "User-Agent": "sec-monitor/1.0 bitcointest0206@gmail.com",
     "Accept": "application/json",
 }
+
+def is_excluded(form: str, description: str) -> bool:
+    return (
+        form.strip().upper() in EXCLUDE_FORMS
+        or description.strip().upper() in EXCLUDE_DESCS
+    )
 
 # ── SEC EDGAR ─────────────────────────────────────────────────────────────────
 def fetch_latest_filings(cik: str) -> list[dict]:
