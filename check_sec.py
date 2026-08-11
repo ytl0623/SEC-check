@@ -204,29 +204,6 @@ def publish_filing_release(company: dict, new_filings: list[dict]) -> str:
     print(f"  [ok] GitHub Release published: {rel['html_url']}")
     return rel["html_url"]
 
-# ── Optional extra notifications ──────────────────────────────────────────────
-def notify_slack(text: str):
-    if SLACK_WEBHOOK:
-        requests.post(SLACK_WEBHOOK, json={"text": f"```{text}```"}, timeout=10)
-
-def notify_discord(text: str):
-    if DISCORD_WEBHOOK:
-        requests.post(DISCORD_WEBHOOK, json={"content": f"```{text}```"}, timeout=10)
-
-def notify_ntfy(text: str, company: dict, new_filings: list[dict]):
-    if NTFY_TOPIC:
-        form_types = ", ".join(set(f["form"] for f in new_filings))
-        requests.post(
-            f"https://ntfy.sh/{NTFY_TOPIC}",
-            data=text.encode(),
-            headers={
-                "Title": f"{company['name']}: {form_types}",
-                "Priority": "high",
-                "Tags": "chart_with_upwards_trend",
-            },
-            timeout=10,
-        )
-
 def write_github_summary(company: dict, new_filings: list[dict], release_url: str):
     path = os.getenv("GITHUB_STEP_SUMMARY")
     if not path:
