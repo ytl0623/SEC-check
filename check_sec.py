@@ -26,6 +26,7 @@ WATCHLIST = [
 
     {"name": "Kneron (SPKL)",            "cik": "0001884046"},
     {"name": "Nokia (NOK)",              "cik": "0000924613"},
+    {"name": "Anthropic (ANT)",          "cik": "0002130357"},
 ]
 
 MAX_FILINGS   = 20
