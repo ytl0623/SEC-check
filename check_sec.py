@@ -1,32 +1,21 @@
 import json
 import os
 import sys
+import time
 import requests
 from datetime import datetime, timezone
 
-# ── Watchlist ─────────────────────────────────────────────────────────────────
-WATCHLIST = [
-    {"name": "Rocket Lab (RKLB)",        "cik": "0001819994"},
-    {"name": "SpaceX (SPCX)",            "cik": "0001181412"},
+# ── Configuration ─────────────────────────────────────────────────────────────
+MARKET_CAP_THRESHOLD = 1_000_000_000_000  # 1 Trillion USD (1T 美金)
+
+EXTRA_WATCHLIST = [
+    {"name": "Anthropic (ANT)",           "cik": "0002130357"},
+    {"name": "Rocket Lab (RKLB)",         "cik": "0001819994"},
+    {"name": "SpaceX (SPCX)",             "cik": "0001181412"},
     {"name": "Intuitive Machines (LUNR)", "cik": "0001844452"},
-    {"name": "AST SpaceMobile (ASTS)",   "cik": "0001780312"},
-    {"name": "Planet Labs (PL)",         "cik": "0001836833"},
-    {"name": "Redwire (RDW)",            "cik": "0001819810"},
-
-    {"name": "Nvidia (NVDA)",            "cik": "0001045810"},
-    {"name": "Apple (AAPL)",             "cik": "0000320193"},
-    {"name": "Microsoft (MSFT)",         "cik": "0000789019"},
-    {"name": "Alphabet (GOOGL)",         "cik": "0001652044"},
-    {"name": "Amazon (AMZN)",            "cik": "0001018724"},
-    {"name": "Meta (META)",              "cik": "0001326801"},
-    {"name": "Broadcom (AVGO)",          "cik": "0001730168"},
-    {"name": "Berkshire Hathaway (BRK)", "cik": "0001067983"},
-    {"name": "Tesla (TSLA)",             "cik": "0001318605"},
-    {"name": "Walmart (WMT)",            "cik": "0000104169"},
-
-    {"name": "Kneron (SPKL)",            "cik": "0001884046"},
-    {"name": "Nokia (NOK)",              "cik": "0000924613"},
-    {"name": "Anthropic (ANT)",          "cik": "0002130357"},
+    {"name": "AST SpaceMobile (ASTS)",    "cik": "0001780312"},
+    {"name": "Planet Labs (PL)",          "cik": "0001836833"},
+    {"name": "Redwire (RDW)",             "cik": "0001819810"},
 ]
 
 MAX_FILINGS   = 20
@@ -52,11 +41,145 @@ SEC_HEADERS = {
     "Accept": "application/json",
 }
 
+
+# ── Dynamic Watchlist (> $1T Market Cap) ──────────────────────────────────────
+def _fetch_sec_ticker_map() -> dict[str, dict]:
+    """從 SEC 官方取得所有美股 Ticker -> CIK 對照表"""
+    url = "https://www.sec.gov/files/company_tickers.json"
+    r = requests.get(url, headers=SEC_HEADERS, timeout=15)
+    r.raise_for_status()
+    raw = r.json()
+
+    ticker_map = {}
+    for entry in raw.values():
+        ticker = str(entry.get("ticker", "")).strip().upper()
+        if not ticker:
+            continue
+        ticker_map[ticker] = {
+            "cik": str(entry["cik_str"]).zfill(10),
+            "title": entry.get("title", ticker),
+        }
+    return ticker_map
+
+
+def _fetch_mega_caps_tradingview(min_mcap: float) -> list[dict]:
+    """主資料源：透過 TradingView Scanner API 篩選美股市值 > 1T 公司"""
+    url = "https://scanner.tradingview.com/america/scan"
+    payload = {
+        "filter": [
+            {"left": "market_cap_basic", "operation": "greater", "right": min_mcap},
+            {"left": "is_primary", "operation": "equal", "right": True},
+        ],
+        "options": {"lang": "en"},
+        "markets": ["america"],
+        "symbols": {"query": {"types": []}, "tickers": []},
+        "columns": ["name", "description", "market_cap_basic"],
+        "sort": {"sortBy": "market_cap_basic", "sortOrder": "desc"},
+        "range": [0, 100],
+    }
+    r = requests.post(url, json=payload, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+    r.raise_for_status()
+
+    results = []
+    for row in r.json().get("data", []):
+        cols = row.get("d", [])
+        if len(cols) >= 3 and cols[2] is not None:
+            results.append({
+                "ticker": str(cols[0]).upper(),
+                "name": str(cols[1]),
+                "market_cap": float(cols[2]),
+            })
+    return results
+
+
+def _fetch_mega_caps_nasdaq(min_mcap: float) -> list[dict]:
+    """備援資料源：透過 Nasdaq Screener API 篩選美股市值 > 1T 公司"""
+    url = "https://api.nasdaq.com/api/screener/stocks"
+    params = {"tableonly": "true", "limit": 100, "marketcap": "mega"}
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/json",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    r = requests.get(url, params=params, headers=headers, timeout=15)
+    r.raise_for_status()
+
+    rows = r.json().get("data", {}).get("rows", [])
+    results = []
+    for row in rows:
+        mcap_str = str(row.get("marketCap", "")).replace(",", "").replace("$", "").strip()
+        if not mcap_str:
+            continue
+        try:
+            mcap = float(mcap_str)
+        except ValueError:
+            continue
+        if mcap >= min_mcap:
+            results.append({
+                "ticker": str(row.get("symbol", "")).strip().upper(),
+                "name": str(row.get("name", "")).strip(),
+                "market_cap": mcap,
+            })
+
+    results.sort(key=lambda x: x["market_cap"], reverse=True)
+    return results
+
+
+def build_dynamic_watchlist(min_mcap: float = MARKET_CAP_THRESHOLD) -> list[dict]:
+    """組合市值 > 1T 公司清單並對應 SEC CIK"""
+    ticker_map = _fetch_sec_ticker_map()
+
+    try:
+        candidates = _fetch_mega_caps_tradingview(min_mcap)
+        source = "TradingView"
+    except Exception as e:
+        print(f"  [warn] TradingView screener failed ({e}), falling back to Nasdaq API...")
+        candidates = _fetch_mega_caps_nasdaq(min_mcap)
+        source = "Nasdaq"
+
+    watchlist = []
+    seen_ciks = set()
+
+    for item in candidates:
+        raw_ticker = item["ticker"]
+        # SEC 格式中點號以連字號表示（例如 BRK.B -> BRK-B）
+        sec_ticker = raw_ticker.replace(".", "-")
+        sec_info = ticker_map.get(sec_ticker) or ticker_map.get(raw_ticker)
+
+        if not sec_info:
+            print(f"  [skip] {raw_ticker} ({item['name']}) — 無對應 SEC CIK（可能為非美股掛牌）")
+            continue
+
+        cik = sec_info["cik"]
+        # 避免雙重股權（如 GOOG/GOOGL 或 BRK.A/BRK.B）導致同一個 CIK 重複抓取
+        if cik in seen_ciks:
+            continue
+        seen_ciks.add(cik)
+
+        mcap_t = item["market_cap"] / 1e12
+        display_name = f"{item['name']} ({raw_ticker})"
+        watchlist.append({
+            "name": display_name,
+            "cik": cik,
+            "note": f"Market Cap: ${mcap_t:.2f}T (Source: {source})",
+        })
+
+    # 合併手動固定追蹤的公司（若 CIK 不重複）
+    for extra in EXTRA_WATCHLIST:
+        cik = extra["cik"].lstrip("0").zfill(10)
+        if cik not in seen_ciks:
+            seen_ciks.add(cik)
+            watchlist.append({**extra, "cik": cik})
+
+    return watchlist
+
+
 def is_excluded(form: str, description: str) -> bool:
     return (
         form.strip().upper() in EXCLUDE_FORMS
         or description.strip().upper() in EXCLUDE_DESCS
     )
+
 
 # ── SEC EDGAR ─────────────────────────────────────────────────────────────────
 def fetch_latest_filings(cik: str) -> list[dict]:
@@ -102,10 +225,12 @@ def fetch_latest_filings(cik: str) -> list[dict]:
 
     return filings
 
+
 # ── GitHub Release cache ──────────────────────────────────────────────────────
 def _get_release_by_tag(tag: str) -> dict | None:
     r = requests.get(f"{GH_API}/repos/{GH_REPO}/releases/tags/{tag}", headers=GH_HEADERS, timeout=10)
     return r.json() if r.ok else None
+
 
 def _create_release(tag: str, name: str, body: str, prerelease=False) -> dict:
     r = requests.post(
@@ -117,14 +242,17 @@ def _create_release(tag: str, name: str, body: str, prerelease=False) -> dict:
     r.raise_for_status()
     return r.json()
 
+
 def _delete_asset(asset_id: int):
     requests.delete(f"{GH_API}/repos/{GH_REPO}/releases/assets/{asset_id}", headers=GH_HEADERS, timeout=10)
+
 
 def _upload_asset(upload_url: str, filename: str, content: bytes):
     base_url = upload_url.split("{")[0]
     headers  = {**GH_HEADERS, "Content-Type": "application/json"}
     r = requests.post(f"{base_url}?name={filename}", headers=headers, data=content, timeout=15)
     r.raise_for_status()
+
 
 def load_cache() -> dict[str, set[str]]:
     """Returns { cik: set(accessionNumbers) }"""
@@ -146,26 +274,24 @@ def load_cache() -> dict[str, set[str]]:
         return {}
 
     raw = r.json()
-
-    # Backwards-compat: old single-company cache was a plain list
     if isinstance(raw, list):
         print("  [warn] Old list-format cache detected — discarding and starting fresh.")
         return {}
 
-    # Expected format: { cik: [acc1, acc2, ...] }
     return {cik: set(nums) for cik, nums in raw.items()}
 
-def save_cache(cache: dict[str, list[str]]):
+
+def save_cache(cache: dict[str, list[str]], watchlist: list[dict]):
     """cache = { cik: [accessionNumbers] }"""
     content = json.dumps(cache, indent=2).encode()
 
     release = _get_release_by_tag(CACHE_TAG)
     if not release:
-        companies = " | ".join(w["name"] for w in WATCHLIST)
+        companies = " | ".join(w["name"] for w in watchlist)
         release = _create_release(
             tag       = CACHE_TAG,
             name      = "SEC Filing Cache (do not delete)",
-            body      = f"Auto-managed by SEC monitor. Tracks: {companies}",
+            body      = f"Auto-managed by SEC monitor (> $1T Market Cap). Current: {companies}",
             prerelease= True,
         )
         print("  [info] Created new sec-cache release.")
@@ -176,6 +302,7 @@ def save_cache(cache: dict[str, list[str]]):
 
     _upload_asset(release["upload_url"], CACHE_ASSET, content)
     print("  [ok] Cache uploaded to GitHub Release.")
+
 
 # ── Publish GitHub Release for new filings ────────────────────────────────────
 def publish_filing_release(company: dict, new_filings: list[dict]) -> str:
@@ -205,6 +332,7 @@ def publish_filing_release(company: dict, new_filings: list[dict]) -> str:
     print(f"  [ok] GitHub Release published: {rel['html_url']}")
     return rel["html_url"]
 
+
 def write_github_summary(company: dict, new_filings: list[dict], release_url: str):
     path = os.getenv("GITHUB_STEP_SUMMARY")
     if not path:
@@ -217,26 +345,43 @@ def write_github_summary(company: dict, new_filings: list[dict], release_url: st
             fh.write(f"| `{f['form']}` | {f['filingDate']} | {desc} | [View]({f['url']}) |\n")
         fh.write(f"\n[GitHub Release]({release_url})\n\n")
 
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
     now_str = datetime.now(timezone.utc).isoformat()
-    print(f"[{now_str}] SEC EDGAR monitor starting — {len(WATCHLIST)} companies\n")
+    print(f"[{now_str}] Fetching companies with Market Cap > $1T...")
 
-    cache       = load_cache()       # { cik: set(accNums) }
-    new_cache   = {}                 # will be saved at the end
-    any_error   = False
+    try:
+        watchlist = build_dynamic_watchlist(MARKET_CAP_THRESHOLD)
+    except Exception as e:
+        print(f"[fatal] Failed to build dynamic watchlist: {e}", file=sys.stderr)
+        sys.exit(1)
 
-    for company in WATCHLIST:
+    if not watchlist:
+        print("[fatal] Watchlist is empty — aborting to protect cache.", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"[ok] Tracking {len(watchlist)} companies (> $1T):")
+    for w in watchlist:
+        print(f"  - {w['name']} | CIK: {w['cik']} | {w.get('note', '')}")
+    print()
+
+    cache     = load_cache()
+    # 保留既有快取紀錄，避免某公司市值短暫跌破 1T 又漲回時重複發送舊文件通知
+    new_cache = {cik: list(nums) for cik, nums in cache.items()}
+    any_error = False
+
+    for company in watchlist:
         cik  = company["cik"]
         name = company["name"]
         print(f"── {name} ({cik})")
 
         try:
             filings = fetch_latest_filings(cik)
+            time.sleep(0.15)  # 遵守 SEC EDGAR 每秒最多 10 次請求的限制
         except Exception as e:
             print(f"  [error] Failed to fetch: {e}", file=sys.stderr)
             any_error = True
-            new_cache[cik] = list(cache.get(cik, []))
             continue
 
         seen        = cache.get(cik, set())
@@ -254,20 +399,14 @@ def main():
             print(f"     - [{f['form']}] {f['filingDate']} — {f['description'] or f['primaryDocument']}")
 
         release_url = publish_filing_release(company, new_filings)
-
-        summary = "\n".join(
-            f"[{f['form']}] {f['filingDate']} {f['description'] or f['primaryDocument']}\n{f['url']}"
-            for f in new_filings
-        )
-        msg = f"{name} new SEC filing(s):\n{summary}"
         write_github_summary(company, new_filings, release_url)
-
         print()
 
-    save_cache(new_cache)
+    save_cache(new_cache, watchlist)
     print("\n[ok] All done.")
     if any_error:
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()
